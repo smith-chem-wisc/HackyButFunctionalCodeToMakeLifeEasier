@@ -66,7 +66,8 @@ namespace FusionPeptideMassVerification
             //MassOfIntactProteins();
             //AminoAcidMasses();
             //ReadLiepeOutput();
-            ElucidateProductMassErrors();
+            //ElucidateProductMassErrors();
+            InvestigatePSMCountDifferences();
             //MessageBox.Show("SGALDVLQMKEEDVLK " + (MonoIsoptopicMass("SGALDVLQMKEEDVLK")+42.01056).ToString());
             //MessageBox.Show("PEPTIDE " + MonoIsoptopicMass("PEPTIDE").ToString());
             //MessageBox.Show("SEQUENCE " + MonoIsoptopicMass("SEQUENCE").ToString());
@@ -74,6 +75,82 @@ namespace FusionPeptideMassVerification
             //MessageBox.Show("YLVSNVIELLDVDPNDQEEDGANIDLDSQR " + MonoIsoptopicMass("YLVSNVIELLDVDPNDQEEDGANIDLDSQR").ToString());
             //MessageBox.Show("LVSNVIELLDVDPNDQEEDGANIDLDSQR " + MonoIsoptopicMass("LVSNVIELLDVDPNDQEEDGANIDLDSQR").ToString());
             //MessageBox.Show("VSNVIELLDVDPNDQEEDGANIDLDSQR " + MonoIsoptopicMass("VSNVIELLDVDPNDQEEDGANIDLDSQR").ToString());
+        }
+
+        private void InvestigatePSMCountDifferences()
+        {
+            string[] CandidateRead = (System.IO.File.ReadAllLines(@"\\bison\share\users\Zach\EPIC_Paper\MHC-II\TimeTrials\Copy of Comparison.txt"));
+            List<List<double>[]> listOfIDs = new List<List<double>[]>();
+
+            foreach (string line in CandidateRead)
+            {
+                List<double> singleC = new List<double>();
+                List<double> ionCount = new List<double>();
+                List<double> classicNS = new List<double>();
+
+                if (line.Equals(CandidateRead[0]))
+                    continue;
+                string newLine = line;
+                newLine = newLine.Replace("[];", "");
+                newLine = newLine.Replace(";[]", "");
+                newLine = newLine.Replace("[", "");
+                newLine = newLine.Replace("];]", "");
+                newLine = newLine.Replace("]", "");
+                newLine = newLine.Replace(";", ",");
+                newLine = newLine.Replace("\"", "");
+
+                if (listOfIDs.Count == 6288)
+                { break; }
+                try
+                {
+                    string[] newLineArray = newLine.Split('\t');
+                    newLineArray[20].Split(',').ToList().ForEach(x => singleC.Add(Convert.ToDouble(x)));
+                    newLineArray[21].Split(',').ToList().ForEach(x => ionCount.Add(Convert.ToDouble(x)));
+                    newLineArray[22].Split(',').ToList().ForEach(x => classicNS.Add(Convert.ToDouble(x)));
+
+                    if (newLineArray[20].Split(',').Count() != newLineArray[22].Split(',').Count())
+                    { }
+                }
+                catch
+                {
+
+                }
+                listOfIDs.Add(new List<double>[] { singleC, ionCount, classicNS });
+                
+            }
+
+            List<double> allSingleCValues = new List<double>();
+            List<double> allClassicValues = new List<double>();
+            foreach(List<double>[] id in listOfIDs)
+            {
+                foreach (double d in id[0])
+                    allSingleCValues.Add(Math.Abs(d));
+                foreach (double d in id[2])
+                    allClassicValues.Add(Math.Abs(d));
+            }
+
+            //if (allSingleCValues.Count == allClassicValues.Count) //should be true
+            {
+                double sumSingleC = 0;
+                double sumClassic = 0;
+                foreach (double d in allSingleCValues)
+                    sumSingleC += d;
+                foreach (double d in allClassicValues)
+                    sumClassic += d;
+                double avgSingleC = sumSingleC / allSingleCValues.Count;
+                double avgClassic = sumClassic / allSingleCValues.Count;
+
+                double sumForstdevClassic = 0;
+                foreach (double d in allClassicValues)
+                    sumForstdevClassic += (avgClassic - d) * (avgClassic - d);
+                double stdevClassic = Math.Sqrt(sumForstdevClassic / (allSingleCValues.Count - 1));
+                double sumForstdevSingleC = 0;
+                foreach (double d in allClassicValues)
+                    sumForstdevSingleC += (avgSingleC - d) * (avgSingleC - d);
+                double stdevSingleC = Math.Sqrt(sumForstdevSingleC / (allSingleCValues.Count - 1));
+            }
+          //  else
+                throw new Exception();
         }
 
         private void ElucidateProductMassErrors()
