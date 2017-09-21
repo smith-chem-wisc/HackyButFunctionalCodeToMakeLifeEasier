@@ -67,7 +67,9 @@ namespace FusionPeptideMassVerification
             //AminoAcidMasses();
             //ReadLiepeOutput();
             //ElucidateProductMassErrors();
-            InvestigatePSMCountDifferences();
+            //InvestigatePSMCountDifferences();
+            //FixMSGFMzidToTsvBug();
+            GenerateNonSpecificPeptidesFASTA();
             //MessageBox.Show("SGALDVLQMKEEDVLK " + (MonoIsoptopicMass("SGALDVLQMKEEDVLK")+42.01056).ToString());
             //MessageBox.Show("PEPTIDE " + MonoIsoptopicMass("PEPTIDE").ToString());
             //MessageBox.Show("SEQUENCE " + MonoIsoptopicMass("SEQUENCE").ToString());
@@ -75,6 +77,98 @@ namespace FusionPeptideMassVerification
             //MessageBox.Show("YLVSNVIELLDVDPNDQEEDGANIDLDSQR " + MonoIsoptopicMass("YLVSNVIELLDVDPNDQEEDGANIDLDSQR").ToString());
             //MessageBox.Show("LVSNVIELLDVDPNDQEEDGANIDLDSQR " + MonoIsoptopicMass("LVSNVIELLDVDPNDQEEDGANIDLDSQR").ToString());
             //MessageBox.Show("VSNVIELLDVDPNDQEEDGANIDLDSQR " + MonoIsoptopicMass("VSNVIELLDVDPNDQEEDGANIDLDSQR").ToString());
+        }
+
+        private void GenerateNonSpecificPeptidesFASTA()
+        {
+            LoadFASTA(@"\\bison\share\users\Zach\EPIC_Paper\MHC-II\170907_Human_Canonical_Uniprot.fasta");
+
+            using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"\\bison\share\users\Zach\EPIC_Paper\MHC-II\170907_Human_Canonical_Uniprot_Digested_7-25_For_Rev2.fasta"))
+            {
+                string accession = "0";
+                int total = FASTA.Rows.Count;
+                int temp = 0;
+                foreach (DataRow row in FASTA.Rows)
+                {
+                    temp++;
+                    string protein = row[1].ToString();
+                    //string accession = row[0].ToString();
+                    int minLength = 7;
+                    int maxLength = 25;
+                    for (int length = minLength; length <= maxLength; length++)
+                    {
+                        for (int index = 0; index + length < protein.Length; index++)
+                        {
+                            file.WriteLine(">sp|" + accession + "|");
+                            file.WriteLine(protein.Substring(index, length));
+
+                            char[] temparray = protein.Substring(index, length).ToCharArray();
+                            Array.Reverse(temparray);
+                            file.WriteLine(">sp|" + accession + "R|");
+                            file.WriteLine(new string(temparray));
+                            accession = UpdateAccession(accession);
+                        }
+                    }
+                }
+            }
+        }
+
+        private string UpdateAccession(string accession)
+        {
+            char[] array = accession.ToCharArray();
+            for (int i = array.Length-1; i >=0; i--)
+            {
+                array[i]++;
+                if (array[i] == 58)
+                    array[i] = 'A';
+                else if (array[i] == 82) //skipR
+                    array[i]++;
+                else if (array[i] == 91)
+                    array[i] = 'a';
+                if (array[i] == 123)
+                    array[i] = '0';
+                else
+                    return new string(array);
+            }
+            return "0" + new string(array);
+        }
+
+        private void FixMSGFMzidToTsvBug() //9/15/17
+        {
+            int i = 0;
+            string[] CandidateRead = (System.IO.File.ReadAllLines(@"\\bison\share\users\Zach\EPIC_Paper\MHC-II\TimeTrials\Task1Search\e001323-Calibrated.msgf.mzid"));
+            Dictionary<string, int> dict = new Dictionary<string, int>();
+            using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"\\bison\share\users\Zach\EPIC_Paper\MHC-II\TimeTrials\Task1Search\e001323-CalibratedFixed.msgf3.mzid"))
+            {
+                int j = 0;
+                foreach (string s in CandidateRead)
+                {
+                    if (s.Contains("<Peptide id="))
+                    {
+                        string[] sArray = s.Split('"');
+                        dict.Add(sArray[1], i);
+                        file.WriteLine(sArray[0] + '"' + i + '"' + sArray[2]);
+                        i++;
+                    }
+                    else if (s.Contains("peptide_ref=") && !s.Contains("PeptideEvidence"))
+                    {
+                        string[] sArray = s.Split(' ');
+                        foreach (string sa in sArray)
+                        {
+                            if (sa.Contains("peptide_ref="))
+                            {
+                                string[] saArray = sa.Split('"');
+                                file.WriteLine(saArray[0] + '"' + dict[saArray[1]] + '"' + saArray[2]);
+                            }
+                            file.Write(sa + " ");
+                        }
+                        file.Write('\n');
+                    }
+                    else
+                        file.WriteLine(s);
+                    j++;
+                }
+            }
         }
 
         private void InvestigatePSMCountDifferences()
@@ -124,9 +218,9 @@ namespace FusionPeptideMassVerification
             foreach(List<double>[] id in listOfIDs)
             {
                 foreach (double d in id[0])
-                    allSingleCValues.Add(Math.Abs(d));
+                    allSingleCValues.Add(d);// Math.Abs(d));
                 foreach (double d in id[2])
-                    allClassicValues.Add(Math.Abs(d));
+                    allClassicValues.Add(d);// Math.Abs(d));
             }
 
             //if (allSingleCValues.Count == allClassicValues.Count) //should be true
@@ -148,6 +242,25 @@ namespace FusionPeptideMassVerification
                 foreach (double d in allClassicValues)
                     sumForstdevSingleC += (avgSingleC - d) * (avgSingleC - d);
                 double stdevSingleC = Math.Sqrt(sumForstdevSingleC / (allSingleCValues.Count - 1));
+
+                int[] singleCDistribution = new int[200];
+                for (int i = 0; i < 200; i++)
+                    singleCDistribution[i] = 0;
+                foreach (double d in allSingleCValues)
+                {if(d<0)
+                    { }
+                    int index = Convert.ToInt16(Math.Round((d - (d % 0.0005)) / 0.0005)) + 100;
+                    singleCDistribution[index]++;
+                }
+
+                int[] classicDistribution = new int[200];
+                for (int i = 0; i < 200; i++)
+                    classicDistribution[i] = 0;
+                foreach (double d in allClassicValues)
+                {
+                    int index = Convert.ToInt16(Math.Round((d - (d % 0.0005)) / 0.0005)) + 100;
+                    classicDistribution[index]++;
+                }
             }
           //  else
                 throw new Exception();
