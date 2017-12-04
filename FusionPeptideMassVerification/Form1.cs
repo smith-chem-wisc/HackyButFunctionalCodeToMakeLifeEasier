@@ -7,6 +7,7 @@ using System.Windows.Forms;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Diagnostics;
+using MathNet.Numerics;
 
 namespace FusionPeptideMassVerification
 {
@@ -45,7 +46,7 @@ namespace FusionPeptideMassVerification
 
         private void Form1_Load(object sender, EventArgs e)
         {
-            ///CalculateLocalFDR();
+            //CalculateLocalFDR();
             //massSimilarity();
             //ConcatSeq();
             //DigestionVerification();
@@ -69,7 +70,13 @@ namespace FusionPeptideMassVerification
             //ElucidateProductMassErrors();
             //InvestigatePSMCountDifferences();
             //FixMSGFMzidToTsvBug();
-            GenerateNonSpecificPeptidesFASTA();
+            //GenerateNonSpecificPeptidesFASTA();
+            //CleanSpikes();
+            //TestGamma();
+            //ParseXTandem();
+            //CompareSpectra();
+            SILACRatios();
+            //SeparateAggregatedFiles();
             //MessageBox.Show("SGALDVLQMKEEDVLK " + (MonoIsoptopicMass("SGALDVLQMKEEDVLK")+42.01056).ToString());
             //MessageBox.Show("PEPTIDE " + MonoIsoptopicMass("PEPTIDE").ToString());
             //MessageBox.Show("SEQUENCE " + MonoIsoptopicMass("SEQUENCE").ToString());
@@ -78,6 +85,315 @@ namespace FusionPeptideMassVerification
             //MessageBox.Show("LVSNVIELLDVDPNDQEEDGANIDLDSQR " + MonoIsoptopicMass("LVSNVIELLDVDPNDQEEDGANIDLDSQR").ToString());
             //MessageBox.Show("VSNVIELLDVDPNDQEEDGANIDLDSQR " + MonoIsoptopicMass("VSNVIELLDVDPNDQEEDGANIDLDSQR").ToString());
         }
+
+        private void SILACRatios()
+        {
+
+            string[] CandidateRead = (System.IO.File.ReadAllLines(@"D:\170710_Desktop\Chemistry\Smith Research\MusSILAC\aggregateQuantifiedPeptidesByFullSeq_1mm.tsv"));
+            List<FlashLFQPSM> psms = new List<FlashLFQPSM>();
+            for (int i = 1; i < CandidateRead.Length; i++)
+            {
+                string[] array = CandidateRead[i].Split('\t').ToArray();
+                List<double> intensities = new List<double>();
+                for (int j = 2; j < (array.Length) / 2 + 1; j++)
+                    intensities.Add(Convert.ToDouble(array[j]));
+                psms.Add(new FlashLFQPSM(array[0], intensities));
+            }
+            string[] header = CandidateRead[0].Split('\t').ToArray();
+            int numFiles = header.Length / 2 - 1;
+            string[] fileNames = new string[numFiles];
+            for (int k = 2; k < 2 + numFiles; k++)
+                fileNames[k - 2] = header[k].Replace("Intensity_", "");
+            int[] numLightOnly = new int[numFiles];
+            int[] numHeavyOnly = new int[numFiles];
+            List<double>[] ratios = new List<double>[numFiles];
+            for (int k = 0; k < numFiles; k++)
+                ratios[k] = new List<double>();
+            psms = psms.OrderBy(o => o.numKHeavy).ToList();
+            psms = psms.OrderBy(o => o.numOxidation).ToList();
+            psms = psms.OrderBy(o => o.baseSequence).ToList();
+            for (int i = 0; i < psms.Count; i++)
+            {
+                if(i==psms.Count-1)
+                {
+                    FlashLFQPSM psmLast = psms[i];
+                    for (int k = 0; k < numFiles; k++)
+                        if (psmLast.intensities[k] > 0)
+                        {
+                            if (psmLast.numKHeavy > 0)
+                                numHeavyOnly[k]++;
+                            if (psmLast.numKLight > 0)
+                                numLightOnly[k]++;
+                        }
+                    break;
+                }
+                FlashLFQPSM psm = psms[i];
+                FlashLFQPSM otherPsm = psms[i + 1];
+                //if no Lysine
+                if (psm.numKTotal == 0)
+                    continue;
+
+                //if not a ratio
+                if (!psm.baseSequence.Equals(psms[i + 1].baseSequence) || psm.numOxidation != psms[i + 1].numOxidation)
+                {
+                    for (int k = 0; k < numFiles; k++)
+                        if (psm.intensities[k] > 0)
+                        {
+                            if (psm.numKHeavy > 0)
+                                numHeavyOnly[k]++;
+                            else
+                                numLightOnly[k]++;
+                        }
+                }
+                else //ratio
+                {
+                    if (psm.numKHeavy != 0 && otherPsm.numKHeavy != 0)
+                        for (int k = 0; k < numFiles; k++)
+                            otherPsm.intensities[k] += psm.intensities[k];
+                    else
+                    {
+                        for (int k = 0; k < numFiles; k++)
+                        {
+                            if (psm.intensities[k] > 0)
+                            {
+                                if (otherPsm.intensities[k] > 0)
+                                    ratios[k].Add(psm.intensities[k] / (psm.intensities[k] + otherPsm.intensities[k]));
+                                else
+                                    numLightOnly[k]++;
+                            }
+                            else if (otherPsm.intensities[k] > 0)
+                                numHeavyOnly[k]++;
+                        }
+                        if (!(i + 2 < psms.Count && otherPsm.baseSequence.Equals(psms[i + 2].baseSequence) && otherPsm.numOxidation == psms[i + 2].numOxidation))
+                            i++;
+                    }
+                }
+            }
+            using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"D:\170710_Desktop\Chemistry\Smith Research\MusSILAC\SILAC_Output.txt"))
+            {
+                file.WriteLine("FileName" + '\t' + "Number of Peptides Observed Without a Heavy Observation" + '\t' + "Number of Peptides Observed Without a Light Observation" + '\t' + "Number of Peptides Observed as Both" + '\t' + "Average Intensity Ratio" + '\t' + "Standard Devation"+'\t'+"Percent Heavy Incorporation");
+                for (int k = 0; k < numFiles; k++)
+                {
+                    double sum = 0;
+                    foreach (double d in ratios[k])
+                        sum += d;
+                    double average = sum / ratios[k].Count;
+                    double standardDev = 0;
+                    foreach (double d in ratios[k])
+                        standardDev += (average - d) * (average - d);
+                    standardDev = standardDev / ratios[k].Count;
+                    standardDev = Math.Pow(standardDev, 0.5);
+                    file.WriteLine(fileNames[k] + '\t' + numLightOnly[k] + '\t' + numHeavyOnly[k] + '\t' + ratios[k].Count + '\t' + average + '\t' + standardDev+'\t'+(1-average)*100);
+                }
+            }
+
+        }
+
+        private void CompareSpectra()
+        {
+            string[] CandidateRead = (System.IO.File.ReadAllLines(@"D:\170710_Desktop\Chemistry\Smith Research\CompressSpectra\Comparison.txt"));
+            List<Tuple<double, double>> one = new List<Tuple<double, double>>();
+            List<Tuple<double, double>> two = new List<Tuple<double, double>>();
+            foreach (string s in CandidateRead)
+            {
+                string[] array = s.Split('\t').ToArray();
+                if (array[0].Length > 0)
+                    one.Add(new Tuple<double, double>(Convert.ToDouble(array[0]), Convert.ToDouble(array[1])));
+                if (array.Length > 4 && array[3].Length > 0)
+                    two.Add(new Tuple<double, double>(Convert.ToDouble(array[3]), Convert.ToDouble(array[4])));
+            }
+            using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"D:\170710_Desktop\Chemistry\Smith Research\CompressSpectra\commonPeaks.txt"))
+            {
+                int i = 0;
+                int j = 0;
+                while(i<one.Count && j<two.Count)
+                {
+                    double t = one[i].Item1 * (1 - 20.0 / 1000000.0);
+                    double tt = two[j].Item1;
+                    double ttt = one[i].Item1 * (1 + 20.0 / 1000000.0);
+                    if (one[i].Item1 * (1 - 20.0 / 1000000.0) < two[j].Item1 && one[i].Item1 * (1 + 20.0 / 1000000.0) > two[j].Item1)
+                    {
+                        file.WriteLine(((one[i].Item1 + two[j].Item1) / 2 ).ToString()+ '\t' + (one[i].Item2).ToString()+'\t' + two[j].Item2);
+                        i++;
+                        j++;
+                    }
+                    else if (one[i].Item1 > two[j].Item1)
+                        j++;
+                    else
+                        i++;
+                }
+            }
+        }
+
+        private void ParseXTandem()
+        {
+            string[] CandidateRead = (System.IO.File.ReadAllLines(@"D:\170710_Desktop\Chemistry\Smith Research\20130504_EXQ3_MiBa_SA_Fib-2.t.xml"));
+            using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"D:\170710_Desktop\Chemistry\Smith Research\20130504_EXQ3_MiBa_SA_Fib-2.t.txt"))
+            {
+                file.WriteLine("scan" + '\t' + "experimental precursor mass" + '\t' + "charge" + '\t' + "retention time" + '\t'+ "e-value" + '\t' +"name"+'\t' + "theoretical precursor mass" + '\t' + "hyperscore" + '\t' + "sequence");
+                bool nextPSM = true;
+                bool catchTwo = true;
+                string builder = "";
+                foreach (string s in CandidateRead)
+                {
+                    if (s.Length < 10)
+                        continue;
+                    if (nextPSM)
+                    {
+                        if (s.Substring(0, 9).Equals("<group id"))
+                        {                           
+                            string[] splitString = s.Split(' ').ToArray();
+                            List<int[]> indexes = new List<int[]> { new int[] { 1, 4 },new int[] { 2, 4 }, new int[] { 3, 3 },new int[] { 4, 4 },new int[] { 5, 8 } , new int[] { 6, 7 } };
+                            foreach (int[] i in indexes)
+                            {
+                                builder += splitString[i[0]].Substring(i[1], splitString[i[0]].Length - i[1]-1);
+                                builder += '\t';
+                            }
+                            nextPSM = false;
+                        }
+                    }
+                    else
+                    {
+                        if (catchTwo && s.Substring(0, 10).Equals("<domain id"))
+                        {
+                            string[] splitString = s.Split(' ').ToArray();
+                            List<int[]> indexes = new List<int[]> { new int[] { 5, 4 }, new int[] { 7, 12 }, new int[] { 15, 5 } };
+                            foreach (int[] i in indexes)
+                            {
+                                builder += splitString[i[0]].Substring(i[1], splitString[i[0]].Length - i[1] - 1);
+                                builder += '\t';
+                            }
+                            catchTwo = false;
+                        }
+                        else if(s.Length>25&&s.Substring(0,26).Equals("<note label=\"Description\">"))
+                        {
+                            builder += s.Split('.').ToArray()[1];
+                            file.WriteLine(builder);
+                            builder = "";
+                            catchTwo = true;
+                            nextPSM = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        private void TestGamma()
+        {
+            double count = 1000000;
+            double product = 5000000;
+            double                    maximumLikelihood= (1.0d / count * product);
+
+            double prevalue = SpecialFunctions.GammaLowerRegularized(maximumLikelihood, 15);
+            double prevaluea = SpecialFunctions.GammaLowerRegularized(maximumLikelihood, 5);
+            double prevalueb = SpecialFunctions.GammaLowerRegularized(maximumLikelihood, 1);
+            double prevaluec = SpecialFunctions.GammaLowerRegularized(maximumLikelihood, 0.5);
+            double prevalued = SpecialFunctions.GammaLowerRegularized(maximumLikelihood, 0);
+            double four = (1 - Math.Pow(prevalue, (count)));
+            Decimal eValue = (Convert.ToDecimal((count) * four));
+            double fourp = Math.Pow(count, prevalue);
+            Decimal eValuep = Convert.ToDecimal(1 - (fourp / count));
+            double foura = Math.Pow(count, prevaluea);
+            Decimal eValuea = Convert.ToDecimal(1 - (foura / count));
+            double fourb = Math.Pow(count, prevalueb);
+            Decimal eValueb = Convert.ToDecimal(1 - (fourb / count));
+            double fourc = Math.Pow(count, prevaluec);
+            Decimal eValuec = Convert.ToDecimal(1 - (fourc / count));
+            double fourd = Math.Pow(count, prevalued);
+            Decimal eValued = Convert.ToDecimal(1 - (fourd / count));
+
+        }
+
+        private void CleanSpikes()
+        {
+            LoadFASTA(@"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\171026_MHC-I\Heck\171110_ClassicSearchOutputHeck.fasta");
+            string[] CandidateRead = (System.IO.File.ReadAllLines(@"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\171026_MHC-I\Heck\171110_ClassicSearchOutputSpikesHeck.txt"));
+            using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\171026_MHC-I\Heck\171110_ClassicSearchOutputSpikesHeckCleaned.txt"))
+            {
+                foreach (string s in CandidateRead)
+                {
+                    string sequence = s.Split('\t').ToArray()[1];
+                    if (!proteinFASTA.AsParallel().Any(x => x.sequence.Contains(sequence)))
+                        file.WriteLine(s);
+                }
+            }
+        }
+
+        private static void SeparateAggregatedFiles()
+        {
+            string[] CandidateRead = (System.IO.File.ReadAllLines(@"D:\170710_Desktop\Chemistry\Smith Research\Vocal Fold\MaxQuantResults\msms07.tsv"));
+            List<List<string>> lines = new List<List<string>>();
+            List<string> files = new List<string>();
+            for(int i=1; i<CandidateRead.Length; i++)
+            {
+                string[] array = CandidateRead[i].Split('\t').ToArray();
+                bool done = false;
+                for(int j=0; j<files.Count(); j++)
+                {
+                    if(files[j].Equals(array[0]))
+                    {
+                        lines[j].Add(CandidateRead[i]);
+                        done = true;
+                        break;
+                    }
+                }
+                if (!done)
+                {
+                    files.Add(array[0]);
+                    lines.Add(new List<string> { CandidateRead[i] });
+                }
+            }
+            for(int j=0; j<files.Count; j++)
+            {
+                string s = files[j];
+                using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"D:\170710_Desktop\Chemistry\Smith Research\Vocal Fold\MaxQuantResults\" + s + ".tsv"))
+                {
+                    file.WriteLine(CandidateRead[0]);
+                    foreach (string ss in lines[j])
+                        file.WriteLine(ss);
+                }
+
+            }
+        }
+
+        /*   private static Dictionary<double, char> massesToResidues = new Dictionary<double, char>();
+
+                       for(int i=0; i<Residue.ResidueMonoisotopicMass.Length; i++)
+               {
+                   if(!double.IsNaN(Residue.ResidueMonoisotopicMass[i]))
+                   {
+                       massesToResidues.Add(Residue.ResidueMonoisotopicMass[i], (char) i);
+                   }
+   }
+   private void testMaxValue()
+           {
+               List<int> testints = new List<int> { 1, 2, 3, 5, 7, 6, 4, 3, 1 };
+               testints.Remove(1);
+               List<int> testing = new List<int>(20);
+               int help = testing.Count;
+               help = testing.Count();
+               int asdf = 1;
+
+               byte[] testarray = new byte[10000000];
+               for (int i = 0; i < testarray.Length; i++)
+                   for(int j=0; j<i%255; j++)
+                       testarray[i]++;
+               List<int> test = new List<int>();
+               for (int i = 0; i < testarray.Length; i++)
+               {
+                   test.Add(i);
+                   test.Clear();
+               }
+
+               int hello = 0;
+
+               foreach(int i in test)
+                   if(testarray[i]<255)
+                   { }
+
+               int highestScore = 0;
+
+           }*/
 
         private void GenerateNonSpecificPeptidesFASTA()
         {
@@ -734,33 +1050,41 @@ namespace FusionPeptideMassVerification
         }
         private void MassOfIntactProteins()
         {
-            string[] CandidateRead = (System.IO.File.ReadAllLines(@"C:\Users\Zach Rolfs\Desktop\Chemistry\Smith Research\Proteasome\ProteinIDforMass.txt"));
-            string[,] massOutput = new string[CandidateRead.Length, 2];
+            string[] CandidateRead = (System.IO.File.ReadAllLines(@"D:\170710_Desktop\Chemistry\Smith Research\Proteasome\ProteinIDforMass2.txt"));
+            //string[,] massOutput = new string[CandidateRead.Length, 2];
+            List<string> massOutput = new List<string>();
             AminoAcidMasses();
-            LoadFASTA(@"C:\Users\Zach Rolfs\Desktop\Chemistry\Smith Research\proteasome\160927_uniprot-reviewed-human-canonical.fasta");
+            LoadFASTA(@"D:\170710_Desktop\Chemistry\Smith Research\proteasome\160927_uniprot-reviewed-human-canonical.fasta");
+            HashSet<string> found = new HashSet<string>();
             for (int i = 0; i < CandidateRead.Length; i++)
             {
-                for (int j = 0; j < FASTA.Rows.Count; j++)
+                if (!found.Contains(CandidateRead[i]))
                 {
-                    if (CandidateRead[i].Equals(FASTA.Rows[j][0]))
+                    found.Add(CandidateRead[i]);
+                    for (int j = 0; j < FASTA.Rows.Count; j++)
                     {
-                        massOutput[i, 0] = CandidateRead[i];
-                        massOutput[i, 1] = MonoIsoptopicMass(FASTA.Rows[j][1].ToString()).ToString();
+                        if (CandidateRead[i].Equals(FASTA.Rows[j][0]))
+                        {
+                          //  massOutput[i, 0] = CandidateRead[i];
+                            massOutput.Add( MonoIsoptopicMass(FASTA.Rows[j][1].ToString()).ToString());
+                        }
                     }
                 }
             }
 
-            using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"C:\Users\Zach Rolfs\Desktop\Chemistry\Smith Research\Proteasome\IntactMassOutput.txt"))
+            using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"D:\170710_Desktop\Chemistry\Smith Research\Proteasome\IntactMassOutput2.txt"))
             {
-                string line = "";
-                for (int i = 0; i < massOutput.Length; i++)
-                {
-                    line = "";
-                    for (int j = 0; j < 2; j++)
+                //string line = "";
+                //for (int i = 0; i < massOutput.Length; i++)
+                    for (int i = 0; i < massOutput.Count; i++)
                     {
-                        line = line + massOutput[i, j] + "\t";
-                    }
-                    file.WriteLine(line);
+                    //line = "";
+                    //for (int j = 0; j < 2; j++)
+                    //{
+                    //    line = line + massOutput[i, j] + "\t";
+                    //}
+                    //file.WriteLine(line);
+                    file.WriteLine(massOutput[i]);
                 }
             }
         }
@@ -893,14 +1217,14 @@ namespace FusionPeptideMassVerification
         }
         private void FASTADecoyGenerator() //quick and dirty. Does not account for identical sequences.
         {
-            LoadFASTA(@"D:\170710_Desktop\Chemistry\Chem .Raw files\uniprot-mouse+bovine_crap_161109_Brian.fasta");
-            using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"D:\170710_Desktop\Chemistry\Chem .Raw files\uniprot-mouse+bovine_crap_161109_Brian_REVERSED.fasta"))
+            LoadFASTA(@"D:\170710_Desktop\Chemistry\Smith Research\170803_human_Uniprot_canoncial_reviewed.fasta");
+            using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"D:\170710_Desktop\Chemistry\Smith Research\FORWARDandREVERSED.fasta"))
             {
                 foreach (DataRow row in FASTA.Rows)
                 {
-                 //   file.WriteLine(">sp|" + row[0] + "|");
+                    file.WriteLine(">sp|" + row[0] + "|");
                     string seq = row[1].ToString();
-               /*     for (int i = 0; i < seq.Length; i += 60) //60 used as number of AAs per line in a FASTA file.
+                    for (int i = 0; i < seq.Length; i += 60) //60 used as number of AAs per line in a FASTA file.
                     {
                         string line = "";
                         if ((i + 60) < seq.Length)
@@ -912,7 +1236,7 @@ namespace FusionPeptideMassVerification
                             line = seq.Substring(i, (seq.Length - i));
                         }
                         file.WriteLine(line);
-                    }*/
+                    }
                     file.WriteLine(">sp|Decoy_" + row[0] + "|");
                     char[] charArray = seq.ToCharArray();
                     Array.Reverse(charArray);
