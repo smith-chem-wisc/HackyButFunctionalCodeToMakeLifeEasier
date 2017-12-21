@@ -8,6 +8,11 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Diagnostics;
 using MathNet.Numerics;
+using MassSpectrometry;
+using IO.MzML;
+using IO.Thermo;
+using Chemistry;
+using UsefulProteomicsDatabases;
 
 namespace FusionPeptideMassVerification
 {
@@ -46,6 +51,9 @@ namespace FusionPeptideMassVerification
 
         private void Form1_Load(object sender, EventArgs e)
         {
+            MassCalculator.importMasses();
+            AminoAcidMasses();
+            Loaders.LoadElements(Path.Combine("D:\\test123\\HackyCode\\HackyButFunctionalCodeToMakeLifeEasier\\FusionPeptideMassVerification\\Data\\", @"elements.dat"));
             //CalculateLocalFDR();
             //massSimilarity();
             //ConcatSeq();
@@ -59,7 +67,6 @@ namespace FusionPeptideMassVerification
             //TDHistogram();
             //Histogram();
             //SpectraZeroes(); //used for visualizing MS data in excel
-            //AminoAcidMasses();
             //MassVerification();
             //MitoCartaParcer();
             //PTMsInBottomUpSamples();
@@ -75,8 +82,12 @@ namespace FusionPeptideMassVerification
             //TestGamma();
             //ParseXTandem();
             //CompareSpectra();
-            SILACRatios();
+            //SILACRatios();
             //SeparateAggregatedFiles();
+            AggregateSeparatedDatabaseSearches();
+            //IntensityQuestions();
+            //GivenSequencesGenerateFASTA();
+            //PNovoParser();
             //MessageBox.Show("SGALDVLQMKEEDVLK " + (MonoIsoptopicMass("SGALDVLQMKEEDVLK")+42.01056).ToString());
             //MessageBox.Show("PEPTIDE " + MonoIsoptopicMass("PEPTIDE").ToString());
             //MessageBox.Show("SEQUENCE " + MonoIsoptopicMass("SEQUENCE").ToString());
@@ -84,6 +95,325 @@ namespace FusionPeptideMassVerification
             //MessageBox.Show("YLVSNVIELLDVDPNDQEEDGANIDLDSQR " + MonoIsoptopicMass("YLVSNVIELLDVDPNDQEEDGANIDLDSQR").ToString());
             //MessageBox.Show("LVSNVIELLDVDPNDQEEDGANIDLDSQR " + MonoIsoptopicMass("LVSNVIELLDVDPNDQEEDGANIDLDSQR").ToString());
             //MessageBox.Show("VSNVIELLDVDPNDQEEDGANIDLDSQR " + MonoIsoptopicMass("VSNVIELLDVDPNDQEEDGANIDLDSQR").ToString());
+        }
+
+        public void IntensityQuestions()
+        {
+            //get scans with correct sequences
+            string[] readLines = (System.IO.File.ReadAllLines(@"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\NeoPaper\GRLCL\ConfidentPSMsf.txt"));
+            List<PSM> psms = new List<PSM>();
+            foreach (string s in readLines)
+            {
+                if (s.Equals(readLines[0]))
+                    continue;
+                string[] ss = s.Split('\t').ToArray();
+                psms.Add(new PSM { scan = Convert.ToInt16(ss[0]), baseSeq = ss[1] });
+            }
+
+            //get spectra
+            List<MS2Spectra> scans = ImportSpectra(@"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\NeoPaper\GRLCL\GR_LCL_1D_HCD_immunopeptidome-calib.mzml").ToList();
+
+            //sort
+            psms = psms.OrderBy(x => x.scan).ToList();
+            scans = scans.Where(x => x != null).ToList();
+            scans = scans.OrderBy(x => x.scanNumber).ToList();
+
+            List<double> bIonNormalized = new List<double>();
+            List<double> yIonNormalized = new List<double>();
+            List<int> bIonCount = new List<int>();
+            List<int> yIonCount = new List<int>();
+
+            Dictionary<char, double[]> aminoInt = new Dictionary<char, double[]>();
+            foreach (char c in AANames)
+                aminoInt.Add(c, new double[] { 0, 0 });
+            Dictionary<char, int[]> aminoIntCount = new Dictionary<char, int[]>();
+            foreach (char c in AANames)
+                aminoIntCount.Add(c, new int[] { 0, 0 });
+
+            int psmIndex = 0;
+            int scanIndex = 0;
+            int numPSMs = 0;
+            while (psmIndex < psms.Count && scanIndex < scans.Count)
+            {
+                PSM psm = psms[psmIndex];
+                MS2Spectra scan = scans[scanIndex];
+                if (psm.scan == scan.scanNumber)
+                {
+                    numPSMs++;
+                    //get theoretical peaks
+                    //find which aa have peaks
+                    double[] bIonInt = new double[psm.baseSeq.Length];
+                    double[] yIonInt = new double[psm.baseSeq.Length];
+                    double bIonTotalInt = 0;
+                    double yIonTotalInt = 0;
+                    for (int i = 0; i < psm.baseSeq.Length - 1; i++)
+                    {
+                        //B IONS//
+
+                        double bTheoMass = MassCalculator.MonoIsoptopicMass(psm.baseSeq.Substring(0, 1 + i)) - Constants.WATER_MONOISOTOPIC_MASS;
+                        //foreach (PTM ptm in psm.nInfo.ptms)
+                        //{
+                        //    if (ptm.index <= i)
+                        //        bTheoMass += ptm.mass;
+                        //}
+                        for (int mass = 0; mass < scan.masses.Length; mass++)
+                            if (MassCalculator.IdenticalMasses(scan.masses[mass], bTheoMass, 20))
+                            {
+                                bIonInt[i] = scan.intensities[mass];
+                                bIonTotalInt += scan.intensities[mass];
+                                while (bIonCount.Count <= i)
+                                    bIonCount.Add(0);
+                                bIonCount[i]++;
+                            }
+
+                        //Y IONS//
+
+                        double yTheoMass = MassCalculator.MonoIsoptopicMass(psm.baseSeq.Substring(psm.baseSeq.Length - 1 - i, i + 1));
+                        //foreach (PTM ptm in psm.cInfo.ptms)
+                        //{
+                        //    if (ptm.index >= candSeq.Length - 2 - i)
+                        //        yTheoMass += ptm.mass;
+                        //}
+                        for (int mass = 0; mass < scan.masses.Length; mass++)
+                            if (MassCalculator.IdenticalMasses(scan.masses[mass], yTheoMass, 20))
+                            {
+                                yIonInt[i] = scan.intensities[mass];
+                                yIonTotalInt += scan.intensities[mass];
+                                while (yIonCount.Count <= i)
+                                    yIonCount.Add(0);
+                                yIonCount[i]++;
+                            }
+                    }
+
+                    for(int i=0; i<psm.baseSeq.Length;i++)
+                    {
+                        if (bIonInt[i] != 0)
+                        {
+                            double normalizedInt = bIonInt[i] / bIonTotalInt;
+                            while (bIonNormalized.Count <= i)
+                                bIonNormalized.Add(0);
+                            bIonNormalized[i] += normalizedInt;
+                            if (i > 2 && i < 6)
+                            {
+                                aminoInt[psm.baseSeq[i]][0] += normalizedInt;
+                                aminoIntCount[psm.baseSeq[i]][0]++;
+                            }
+                        }
+                        if (yIonInt[i] != 0)
+                        {
+                            double normalizedInt = yIonInt[i] / yIonTotalInt;
+                            while (yIonNormalized.Count <= i)
+                                yIonNormalized.Add(0);
+                            yIonNormalized[i] += normalizedInt;
+                            if (i > 2 && i < 6)
+                            {
+                                aminoInt[psm.baseSeq[psm.baseSeq.Length - i - 1]][1] += normalizedInt;
+                                aminoIntCount[psm.baseSeq[psm.baseSeq.Length-i-1]][1]++;
+                            }
+                        }
+                    }
+
+
+                    scanIndex++;
+                    psmIndex++;
+                }
+                else if (psm.scan > scan.scanNumber)
+                {
+                    scanIndex++;
+                }
+                else
+                {
+                    psmIndex++;
+                }
+            }
+            using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\NeoPaper\GRLCL\IntensityDistribution.txt"))
+            {
+                int i = 0;
+                file.WriteLine("Ion Number" + '\t' + "bIonNormalizedInt" + '\t' + "yIonNormalizedInt" + '\t' + "bCount" + '\t' + "yCount");
+                while(i<yIonNormalized.Count ||i<bIonNormalized.Count)
+                {
+                    string line = i.ToString();
+                    line += '\t';
+                    if (i < bIonNormalized.Count)
+                        line += bIonNormalized[i];
+                    else
+                        line += "0";
+                    line += '\t';
+                    if (i < yIonNormalized.Count)
+                        line += yIonNormalized[i];
+                    else
+                        line += "0";
+                    line += '\t';
+                    if (i < bIonCount.Count)
+                        line += bIonCount[i];
+                    else
+                        line += "0";
+                    line += '\t';
+                    if (i < yIonCount.Count)
+                        line += yIonCount[i];
+                    else
+                        line += "0";
+                    file.WriteLine(line);
+                    i++;
+                }
+                file.WriteLine();
+                foreach(KeyValuePair<char, double[]> kvp in aminoInt)
+                {
+                    string line = kvp.Key.ToString();
+                    line += '\t';
+                    line += kvp.Value[0].ToString();
+                    line += '\t';
+                    line += kvp.Value[1].ToString();
+                    line += '\t';
+                    line += aminoIntCount[kvp.Key][0].ToString();
+                    line += '\t';
+                    line += aminoIntCount[kvp.Key][1].ToString();
+                    file.WriteLine(line);
+                }
+            }
+        }
+
+        public MS2Spectra[] ImportSpectra(string origDataFile)
+        {
+            IMsDataFile<IMsDataScan<IMzSpectrum<IMzPeak>>> myMsDataFile;
+            if (Path.GetExtension(origDataFile).Equals(".mzML", StringComparison.InvariantCultureIgnoreCase))
+                myMsDataFile = Mzml.LoadAllStaticData(origDataFile, null, null, false, false);
+            //            myMsDataFile = Mzml.LoadAllStaticData(origDataFile, 200, 0.01, false, true);
+            else
+                myMsDataFile = ThermoStaticData.LoadAllStaticData(origDataFile);
+            List<MS2Spectra> scans = GetMs2Scans(myMsDataFile).ToList();
+            int maxScanNumber = scans.Max(x => x.scanNumber);
+            MS2Spectra[] arrayToReturn = new MS2Spectra[maxScanNumber + 1];
+            scans.AsParallel().ForAll(scan => arrayToReturn[scan.scanNumber] = scan);
+            return arrayToReturn;
+        }
+
+        private IEnumerable<MS2Spectra> GetMs2Scans(IMsDataFile<IMsDataScan<IMzSpectrum<IMzPeak>>> myMsDataFile)
+        {
+            foreach (var ms2scan in myMsDataFile.OfType<IMsDataScanWithPrecursor<IMzSpectrum<IMzPeak>>>())
+            {
+                List<Tuple<List<IMzPeak>, int>> isolatedStuff = new List<Tuple<List<IMzPeak>, int>>();
+                if (ms2scan.OneBasedPrecursorScanNumber.HasValue)
+                {
+                    var precursorSpectrum = myMsDataFile.GetOneBasedScan(ms2scan.OneBasedPrecursorScanNumber.Value);
+                    ms2scan.RefineSelectedMzAndIntensity(precursorSpectrum.MassSpectrum);
+                    if (ms2scan.SelectedIonMonoisotopicGuessMz.HasValue)
+                        ms2scan.ComputeMonoisotopicPeakIntensity(precursorSpectrum.MassSpectrum);
+                }
+
+                if (ms2scan.SelectedIonChargeStateGuess.HasValue)
+                {
+                    var precursorCharge = ms2scan.SelectedIonChargeStateGuess.Value;
+                    if (ms2scan.SelectedIonMonoisotopicGuessMz.HasValue)
+                    {
+                        var precursorMZ = ms2scan.SelectedIonMonoisotopicGuessMz.Value;
+                        if (!isolatedStuff.Any(b => (precursorMZ.ToMass(precursorCharge) * (1 - 5 / 1000000) < b.Item1.First().Mz.ToMass(b.Item2)) && (precursorMZ.ToMass(precursorCharge) * (1 + 5 / 1000000) > b.Item1.First().Mz.ToMass(b.Item2))))
+                            isolatedStuff.Add(new Tuple<List<IMzPeak>, int>(new List<IMzPeak> { new MzPeak(precursorMZ, ms2scan.SelectedIonMonoisotopicGuessIntensity.Value) }, precursorCharge));
+                    }
+                    else
+                    {
+                        var precursorMZ = ms2scan.SelectedIonMZ;
+                        if (!isolatedStuff.Any(b => (precursorMZ.ToMass(precursorCharge) * (1 - 5 / 1000000) < b.Item1.First().Mz.ToMass(b.Item2)) && (precursorMZ.ToMass(precursorCharge) * (1 + 5 / 1000000) > b.Item1.First().Mz.ToMass(b.Item2))))
+                            isolatedStuff.Add(new Tuple<List<IMzPeak>, int>(new List<IMzPeak> { new MzPeak(precursorMZ, ms2scan.SelectedIonIntensity ?? double.NaN) }, precursorCharge));
+                    }
+                }
+                foreach (var heh in isolatedStuff)
+                    yield return new MS2Spectra(ms2scan.OneBasedScanNumber, heh.Item1.First().Mz.ToMass(heh.Item2), ms2scan.MassSpectrum.XArray, ms2scan.MassSpectrum.YArray);
+            }
+        }
+
+        private void PNovoParser()
+        {
+            string[] CandidateRead = (System.IO.File.ReadAllLines(@"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\NeoPaper\e001318\pNovo\result\pNovo_noMerge.res"));
+            using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\NeoPaper\e001318\pNovo\result\pNovo_noMergeParsed.txt"))
+            {
+                for(int i=0; i<CandidateRead.Length; i++)
+                {
+                    if(CandidateRead[i].Contains("e001318-calib."))
+                    {
+                        string scan = CandidateRead[i].Split('.').ToArray()[1];
+                        i++;
+                        if (i < CandidateRead.Length && CandidateRead[i].Length > 0 && CandidateRead[i][0] == 'P')
+                        {
+                            string[] array1 = CandidateRead[i].Split('\t').ToArray();
+                            string topScore = array1[2];
+                            string sequences = array1[1];
+                            while (i < CandidateRead.Length && CandidateRead[i].Length > 0 && CandidateRead[i][0] == 'P')
+                            {
+                                sequences += " or " + CandidateRead[i].Split('\t').ToArray()[1];
+                                i++;
+                            }
+                            file.WriteLine(scan + '\t' + sequences + '\t' + topScore);
+                        }
+                    }
+                }
+            }
+        }
+
+        private void GivenSequencesGenerateFASTA()
+        {
+            string[] CandidateRead = (System.IO.File.ReadAllLines(@"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\NeoPaper\Fibroblast\FibroblastHits.fasta"));
+            HashSet<string> seenSeq = new HashSet<string>();
+            int accession = 0;
+            using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\NeoPaper\Fibroblast\FibroblastHits.fasta"))
+            {
+                foreach(string s in CandidateRead)
+                {
+                    if(!seenSeq.Contains(s))
+                    {
+                        seenSeq.Add(s);
+                        file.WriteLine(">sp|"+accession.ToString()+"|stuff");
+                        accession++;
+                        file.WriteLine(s);
+                    }
+                }
+            }
+        }
+
+        private void AggregateSeparatedDatabaseSearches()
+        {
+            List<List<PSM>> allInput = new List<List<PSM>>();
+            PSM[] output = new PSM[100000];
+            string header = "";
+            List<string> filenames = new List<string>
+            {
+                                @"\\bison\share\users\Zach\NeoPaper\MHC-II\Task3-Exact_Standard\e002504-calib_PSMs_5ppmAroundZero.psmtsv",
+@"\\bison\share\users\Zach\NeoPaper\MHC-II\2017-12-21-12-41-21\Task1-Neo_Cis\e002504-calib_PSMs_5ppmAroundZero.psmtsv"
+           //     @"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\NeoPaper\e001318\Normal_Exact_Standard\Task1-2Exact\e001318-calib_PSMs_5ppmAroundZero.psmtsv",
+           //     @"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\NeoPaper\e001318\2017-12-12-10-19-16_Normal\Task1-Neo_Cis\e001318-calib_PSMs_5ppmAroundZero.psmtsv"
+                //@"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\NeoPaper\e001318\Normal_Normal_Heck\Task1-Normal\e001318-calib_PSMs_5ppmAroundZero.psmtsv",
+                //@"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\NeoPaper\e001318\Normal_NormalCis_Heck\Task1-normalCis\e001318-calib_PSMs_5ppmAroundZero.psmtsv",
+                //@"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\NeoPaper\e001318\Normal_ReverseCis_Heck\Task1-reverseCis\e001318-calib_PSMs_5ppmAroundZero.psmtsv"
+        };
+            int i = 0;
+            foreach (string filename in filenames)
+            {
+                i++;
+                string[] CandidateRead = (System.IO.File.ReadAllLines(filename));
+                header = CandidateRead[0];
+                allInput.Add(PSM.parseHeck(CandidateRead, i));
+            }
+            foreach (List<PSM> psms in allInput)
+                foreach (PSM psm in psms)
+                {
+                    if (output[psm.scan] == null || output[psm.scan].score < psm.score - 0.001)
+                        output[psm.scan] = psm;
+                    else if (output[psm.scan].score > psm.score - 0.001 && output[psm.scan].score < psm.score + 0.001)
+                    {
+                        output[psm.scan].baseSeq += " or " + psm.baseSeq;
+                        output[psm.scan].proteinAccession += " or " + psm.proteinAccession;
+                    }
+                }
+
+            //using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\NeoPaper\e001318\FakeNeoCis_AggregatedTest171211_2k.txt"))
+            //using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\NeoPaper\e001318\NormalNeoCis_AggregatedTest171213_Minus2.txt"))
+            using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"\\bison\share\users\Zach\NeoPaper\MHC-II\171221NormalNeoCis_Aggregated.txt"))
+            {
+                file.WriteLine(header);
+                foreach (PSM psm in output)
+                    if (psm != null)
+                        file.WriteLine(psm.ToString()+'\t'+psm.translated);
+            }
         }
 
         private void SILACRatios()
@@ -97,7 +427,7 @@ namespace FusionPeptideMassVerification
                 List<double> intensities = new List<double>();
                 for (int j = 2; j < (array.Length) / 2 + 1; j++)
                     intensities.Add(Convert.ToDouble(array[j]));
-                psms.Add(new FlashLFQPSM(array[0], intensities));
+                psms.Add(new FlashLFQPSM(array[0], array[1], intensities));
             }
             string[] header = CandidateRead[0].Split('\t').ToArray();
             int numFiles = header.Length / 2 - 1;
@@ -106,15 +436,37 @@ namespace FusionPeptideMassVerification
                 fileNames[k - 2] = header[k].Replace("Intensity_", "");
             int[] numLightOnly = new int[numFiles];
             int[] numHeavyOnly = new int[numFiles];
+            string[] proteins = new string[numFiles];
             List<double>[] ratios = new List<double>[numFiles];
             for (int k = 0; k < numFiles; k++)
                 ratios[k] = new List<double>();
             psms = psms.OrderBy(o => o.numKHeavy).ToList();
             psms = psms.OrderBy(o => o.numOxidation).ToList();
             psms = psms.OrderBy(o => o.baseSequence).ToList();
-            for (int i = 0; i < psms.Count; i++)
+            double[] heavyIntensity = new double[numFiles];
+            double[] lightIntensity = new double[numFiles];
+            double[] totalHeavy = new double[numFiles];
+            double[] totalLight = new double[numFiles];
+            for(int k=0; k<numFiles; k++)
             {
-                if(i==psms.Count-1)
+                heavyIntensity[k] = 0;
+                lightIntensity[k] = 0;
+                proteins[k] = "";
+                totalHeavy[k] = 0;
+                totalLight[k] = 0;
+            }
+            for(int i=0; i<psms.Count; i++)
+            {
+                FlashLFQPSM psm = psms[i];
+                for(int k=0; k<numFiles; k++)
+                {
+                    totalHeavy[k] += psm.intensities[k] * psm.numKHeavy;
+                    totalLight[k] += psm.intensities[k] * psm.numKLight;
+                }
+            }
+            for (int i = 0; true; i++)
+            {
+                if (i == psms.Count - 1)
                 {
                     FlashLFQPSM psmLast = psms[i];
                     for (int k = 0; k < numFiles; k++)
@@ -123,7 +475,10 @@ namespace FusionPeptideMassVerification
                             if (psmLast.numKHeavy > 0)
                                 numHeavyOnly[k]++;
                             if (psmLast.numKLight > 0)
+                            {
                                 numLightOnly[k]++;
+                                proteins[k] += psmLast.protein + "_";
+                            }
                         }
                     break;
                 }
@@ -134,44 +489,58 @@ namespace FusionPeptideMassVerification
                     continue;
 
                 //if not a ratio
-                if (!psm.baseSequence.Equals(psms[i + 1].baseSequence) || psm.numOxidation != psms[i + 1].numOxidation)
+                if (!psm.baseSequence.Equals(otherPsm.baseSequence) || psm.numOxidation != otherPsm.numOxidation)
                 {
                     for (int k = 0; k < numFiles; k++)
                         if (psm.intensities[k] > 0)
                         {
                             if (psm.numKHeavy > 0)
                                 numHeavyOnly[k]++;
-                            else
+                            if (psm.numKLight > 0)
+                            {
                                 numLightOnly[k]++;
+                                proteins[k] += psm.protein + "_";
+                            }
                         }
                 }
                 else //ratio
                 {
-                    if (psm.numKHeavy != 0 && otherPsm.numKHeavy != 0)
-                        for (int k = 0; k < numFiles; k++)
-                            otherPsm.intensities[k] += psm.intensities[k];
-                    else
+                    for (int k = 0; k < numFiles; k++)
+                    {
+                        heavyIntensity[k] += psm.numKHeavy * psm.intensities[k];
+                        heavyIntensity[k] += otherPsm.numKHeavy * otherPsm.intensities[k];
+                        lightIntensity[k] += psm.numKLight * psm.intensities[k];
+                        lightIntensity[k] += otherPsm.numKLight * otherPsm.intensities[k];
+                    }
+                    if (!(i + 2 < psms.Count && otherPsm.baseSequence.Equals(psms[i + 2].baseSequence) && otherPsm.numOxidation == psms[i + 2].numOxidation))
                     {
                         for (int k = 0; k < numFiles; k++)
                         {
-                            if (psm.intensities[k] > 0)
+                            if (lightIntensity[k] > 0)
                             {
-                                if (otherPsm.intensities[k] > 0)
-                                    ratios[k].Add(psm.intensities[k] / (psm.intensities[k] + otherPsm.intensities[k]));
+                                if (heavyIntensity[k] > 0)
+                                    ratios[k].Add(lightIntensity[k] / (lightIntensity[k] + heavyIntensity[k]));
                                 else
+                                {
                                     numLightOnly[k]++;
+                                    proteins[k] += psm.protein + "_";
+                                }
                             }
-                            else if (otherPsm.intensities[k] > 0)
+                            else if (heavyIntensity[k] > 0)
                                 numHeavyOnly[k]++;
                         }
-                        if (!(i + 2 < psms.Count && otherPsm.baseSequence.Equals(psms[i + 2].baseSequence) && otherPsm.numOxidation == psms[i + 2].numOxidation))
-                            i++;
+                        i++;
+                        for (int k = 0; k < numFiles; k++)
+                        {
+                            heavyIntensity[k] = 0;
+                            lightIntensity[k] = 0;
+                        }
                     }
                 }
             }
             using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"D:\170710_Desktop\Chemistry\Smith Research\MusSILAC\SILAC_Output.txt"))
             {
-                file.WriteLine("FileName" + '\t' + "Number of Peptides Observed Without a Heavy Observation" + '\t' + "Number of Peptides Observed Without a Light Observation" + '\t' + "Number of Peptides Observed as Both" + '\t' + "Average Intensity Ratio" + '\t' + "Standard Devation"+'\t'+"Percent Heavy Incorporation");
+                file.WriteLine("FileName" + '\t' + "Number of Peptides Observed Without a Heavy Observation" + '\t' + "Number of Peptides Observed Without a Light Observation" + '\t' + "Number of Peptides Observed as Both" + '\t' + "Average Intensity Ratio" + '\t' + "Standard Devation"+'\t'+"Percent Heavy from Ratio"+'\t'+"Percent Heavy Incorporated");
                 for (int k = 0; k < numFiles; k++)
                 {
                     double sum = 0;
@@ -183,10 +552,26 @@ namespace FusionPeptideMassVerification
                         standardDev += (average - d) * (average - d);
                     standardDev = standardDev / ratios[k].Count;
                     standardDev = Math.Pow(standardDev, 0.5);
-                    file.WriteLine(fileNames[k] + '\t' + numLightOnly[k] + '\t' + numHeavyOnly[k] + '\t' + ratios[k].Count + '\t' + average + '\t' + standardDev+'\t'+(1-average)*100);
+                    file.WriteLine(fileNames[k] + '\t' + numLightOnly[k] + '\t' + numHeavyOnly[k] + '\t' + ratios[k].Count + '\t' + average + '\t' + standardDev+'\t'+(1-average)*100+'\t'+(totalHeavy[k])/(totalHeavy[k]+totalLight[k])*100);
                 }
             }
-
+            using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"D:\170710_Desktop\Chemistry\Smith Research\MusSILAC\SILAC_Distributions.txt"))
+            {
+                for (int k = 0; k < numFiles; k++)
+                {
+                    string line = fileNames[k] + '\t';
+                    foreach (double d in ratios[k])
+                        line += d.ToString() + '\t';
+                    file.WriteLine(line);
+                }
+            }
+            using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"D:\170710_Desktop\Chemistry\Smith Research\MusSILAC\SILAC_LightOnlyProteins.txt"))
+            {
+                for (int k = 0; k < numFiles; k++)
+                {
+                    file.WriteLine(fileNames[k]+'\t'+proteins[k]);
+                }
+            }
         }
 
         private void CompareSpectra()
@@ -2097,7 +2482,7 @@ namespace FusionPeptideMassVerification
                 AVERAGE_AMINO_ACID_MASSES[i] = double.NaN;
             }
 
-            using (StreamReader amino_acids = new StreamReader(Path.Combine(Path.GetDirectoryName(Environment.GetCommandLineArgs()[0]), "amino_acids.tsv"))) //file located in Morpheus folder
+            using (StreamReader amino_acids = new StreamReader("D:\\test123\\HackyCode\\HackyButFunctionalCodeToMakeLifeEasier\\FusionPeptideMassVerification\\Data\\amino_acids.tsv"))
             {
                 amino_acids.ReadLine();
 

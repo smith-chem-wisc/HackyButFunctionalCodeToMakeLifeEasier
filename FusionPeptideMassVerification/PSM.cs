@@ -36,6 +36,8 @@ namespace FusionPeptideMassVerification
         public bool isTarget { get; set; }
         public string line { get; set; }
         public int[] TD { get; set; }
+        public double retentionTime { get; set; }
+        public int translated { get; set; }
 
         public PSM()
         {
@@ -50,7 +52,68 @@ namespace FusionPeptideMassVerification
             expMass = -1;
             NFound = false;
             CFound = false;
+            translated = 0;
         }
+
+        public static string PsmHeader = "File Name \t Scan Number \t Precursor Mass \t Protein Accession \t Base Sequence \t Score";
+        public override string ToString()
+        {
+            return fileName+'\t' + scan + '\t' + precursorMass + '\t' + proteinAccession + '\t' + baseSeq + '\t' + score;
+        }
+
+        public static List<PSM> parseHeck(string[] candidateRead, int translated)
+        {
+            string[] header = candidateRead[0].Split('\t').ToArray(); //assume both files have identical headers
+
+            int fileNameIndex = -1;
+            int scanNumberIndex = -1;
+            int scanPrecursorMassIndex = -1;
+            int proteinAccessionIndex = -1;
+            int baseSequenceIndex = -1;
+            int scoreIndex = -1;
+            int q = -1;
+            int retentionIndex = -1;
+            for (int col = 0; col < header.Length; col++)
+            {
+                if (header[col].Equals("File Name"))
+                    fileNameIndex = col;
+                else if (header[col].Equals("Scan Number"))
+                    scanNumberIndex = col;
+                else if (header[col].Equals("Scan Retention Time"))
+                    retentionIndex = col;
+                else if (header[col].Equals("Precursor Mass"))
+                    scanPrecursorMassIndex = col;
+                else if (header[col].Equals("Protein Accession"))
+                    proteinAccessionIndex = col;
+                else if (header[col].Equals("Base Sequence")) //"FullSequence" should be used for the detection of FPs containing PTMs and for missed cleave/nonspecific peptides containing PTMs
+                    baseSequenceIndex = col;
+                else if (header[col].Equals("Score"))
+                    scoreIndex = col;
+
+
+            }
+            List<PSM> allPsms = new List<PSM>();
+            for (int i = 1; i < candidateRead.Length; i++)
+            {
+                string[] tempCand = candidateRead[i].Replace("\"", "").Split('\t').ToArray();
+                //  if (Convert.ToDouble(tempCand[q]) < 0.01)
+                {
+                    PSM tempPSM = new PSM();
+                    tempPSM.translated = translated;
+                    tempPSM.fileName = tempCand[fileNameIndex];
+                    tempPSM.scan = Convert.ToInt32(tempCand[scanNumberIndex]);
+                    tempPSM.precursorMass = Convert.ToDouble(tempCand[scanPrecursorMassIndex]);
+                    tempPSM.proteinAccession = tempCand[proteinAccessionIndex];
+                    tempPSM.baseSeq = tempCand[baseSequenceIndex];
+                    tempPSM.retentionTime = Convert.ToDouble(tempCand[retentionIndex]);
+                    tempPSM.score = Convert.ToDouble(tempCand[scoreIndex]);
+
+                    allPsms.Add(tempPSM);
+                }
+            }
+            return allPsms;
+        }
+
         public static List<PSM> parseAllPSMs(string[] candidateRead, bool keepOnlyConfidentIDs)
         {
             string[] header = candidateRead[0].Split('\t').ToArray(); //assume both files have identical headers
@@ -70,12 +133,15 @@ namespace FusionPeptideMassVerification
             int cDecoy = -1;
             int cTarget = -1;
             int q = -1;
+            int retentionIndex = -1;
             for (int col = 0; col < header.Length; col++)
             {
                 if (header[col].Equals("File Name"))
                     fileNameIndex = col;
                 else if (header[col].Equals("Scan Number"))
                     scanNumberIndex = col;
+                else if (header[col].Equals("Scan Retention Time"))
+                    retentionIndex = col;
                 else if (header[col].Equals("Precursor Mass"))
                     scanPrecursorMassIndex = col;
                 else if (header[col].Equals("Protein Accession"))
@@ -116,6 +182,7 @@ namespace FusionPeptideMassVerification
                     tempPSM.precursorMass = Convert.ToDouble(tempCand[scanPrecursorMassIndex]);
                     tempPSM.proteinAccession = tempCand[proteinAccessionIndex];
                     tempPSM.baseSeq = tempCand[baseSequenceIndex];
+                    tempPSM.retentionTime = Convert.ToDouble(tempCand[retentionIndex]);
                     string matchedIons = tempCand[matchedIonsIndex].Replace("[", "").Replace("]", "");
                     string[] matchedIonArray = matchedIons.Split(';');
                     List<string> tempList1 = new List<string>();

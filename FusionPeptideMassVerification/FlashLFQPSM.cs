@@ -10,6 +10,7 @@ namespace FusionPeptideMassVerification
     class FlashLFQPSM
     {
         public string fullSequence { get; set; }
+        public string protein { get; set; }
         public List<double> intensities { get; set; }
         public int numKTotal { get; set; }
         public int numKLight { get; set; }
@@ -17,9 +18,10 @@ namespace FusionPeptideMassVerification
         public string baseSequence { get; set; }
         public int numOxidation { get; set; }
 
-        public FlashLFQPSM(string fullSequence, List<double> intensities)
+        public FlashLFQPSM(string fullSequence, string protein, List<double> intensities)
         {
             this.fullSequence = fullSequence;
+            this.protein = protein;
             this.intensities = intensities;
             numKHeavy = fullSequence.Length - fullSequence.Replace("K[", "K").Length;
             numKTotal = fullSequence.Length - fullSequence.Replace("K", "").Length;
