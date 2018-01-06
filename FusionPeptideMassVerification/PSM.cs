@@ -85,7 +85,7 @@ namespace FusionPeptideMassVerification
                     scanPrecursorMassIndex = col;
                 else if (header[col].Equals("Protein Accession"))
                     proteinAccessionIndex = col;
-                else if (header[col].Equals("Base Sequence")) //"FullSequence" should be used for the detection of FPs containing PTMs and for missed cleave/nonspecific peptides containing PTMs
+                else if (header[col].Equals("Full Sequence")) //"FullSequence" should be used for the detection of FPs containing PTMs and for missed cleave/nonspecific peptides containing PTMs
                     baseSequenceIndex = col;
                 else if (header[col].Equals("Score"))
                     scoreIndex = col;

@@ -377,14 +377,18 @@ namespace FusionPeptideMassVerification
             string header = "";
             List<string> filenames = new List<string>
             {
-                                @"\\bison\share\users\Zach\NeoPaper\MHC-II\Task3-Exact_Standard\e002504-calib_PSMs_5ppmAroundZero.psmtsv",
-@"\\bison\share\users\Zach\NeoPaper\MHC-II\2017-12-21-12-41-21\Task1-Neo_Cis\e002504-calib_PSMs_5ppmAroundZero.psmtsv"
-           //     @"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\NeoPaper\e001318\Normal_Exact_Standard\Task1-2Exact\e001318-calib_PSMs_5ppmAroundZero.psmtsv",
-           //     @"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\NeoPaper\e001318\2017-12-12-10-19-16_Normal\Task1-Neo_Cis\e001318-calib_PSMs_5ppmAroundZero.psmtsv"
+                                //@"\\bison\share\users\Zach\FusionPeptideWork\Samples\RAW_Cast_B6\B6\2017-12-21-14-01-23\Task1-CalibrateTask\2017-12-31-09-44-29\Task1-Neo_Cis\04-29-13_B6_Frac1_9uL-calib_PSMs_5ppmAroundZero.psmtsv",
+                                //@"\\bison\share\users\Zach\FusionPeptideWork\Samples\RAW_Cast_B6\B6\2017-12-21-14-01-23\Task1-CalibrateTask\2017-12-31-10-17-02\Task1-Neo_Cis\04-29-13_B6_Frac1_9uL-calib_PSMs_5ppmAroundZero.psmtsv",
+                                //@"\\bison\share\users\Zach\FusionPeptideWork\Samples\RAW_Cast_B6\B6\2017-12-21-14-01-23\Task1-CalibrateTask\2017-12-31-10-17-52\Task1-Neo_Cis\04-29-13_B6_Frac1_9uL-calib_PSMs_5ppmAroundZero.psmtsv"
+           //     @"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\NeoPaper\e001318\Fake_Exact_Standard\Task1-2Exact\e001318-calib_PSMs_5ppmAroundZero.psmtsv",
+             //   @"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\NeoPaper\e001318\2018-01-02-16-21-41\Task1-Neo_Cis\e001318-calib_PSMs_5ppmAroundZero.psmtsv"
                 //@"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\NeoPaper\e001318\Normal_Normal_Heck\Task1-Normal\e001318-calib_PSMs_5ppmAroundZero.psmtsv",
                 //@"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\NeoPaper\e001318\Normal_NormalCis_Heck\Task1-normalCis\e001318-calib_PSMs_5ppmAroundZero.psmtsv",
                 //@"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\NeoPaper\e001318\Normal_ReverseCis_Heck\Task1-reverseCis\e001318-calib_PSMs_5ppmAroundZero.psmtsv"
-        };
+                @"\\bison\share\users\Zach\NeoPaper\Fibroblast\2018-01-04-10-44-57_GPTMD\Task2-SearchTask\20130504_EXQ3_MiBa_SA_Fib-2_PSMs.psmtsv",
+                @"\\bison\share\users\Zach\NeoPaper\Fibroblast\2018-01-03-13-48-52_TL\Task1-Neo_Cis\20130504_EXQ3_MiBa_SA_Fib-2_PSMs_5ppmAroundZero.psmtsv",
+                @"\\bison\share\users\Zach\NeoPaper\Fibroblast\2018-01-03-14-05-08_NC\Task1-Neo_Cis\20130504_EXQ3_MiBa_SA_Fib-2_PSMs_5ppmAroundZero.psmtsv"
+            };
             int i = 0;
             foreach (string filename in filenames)
             {
@@ -396,18 +400,18 @@ namespace FusionPeptideMassVerification
             foreach (List<PSM> psms in allInput)
                 foreach (PSM psm in psms)
                 {
-                    if (output[psm.scan] == null || output[psm.scan].score < psm.score - 0.001)
+                    if (output[psm.scan] == null || output[psm.scan].score < psm.score - 2.501)
                         output[psm.scan] = psm;
-                    else if (output[psm.scan].score > psm.score - 0.001 && output[psm.scan].score < psm.score + 0.001)
-                    {
-                        output[psm.scan].baseSeq += " or " + psm.baseSeq;
-                        output[psm.scan].proteinAccession += " or " + psm.proteinAccession;
-                    }
+                    //else if (output[psm.scan].score > psm.score - 0.001 && output[psm.scan].score < psm.score + 0.001)
+                    //{
+                    //    output[psm.scan].baseSeq += " or " + psm.baseSeq;
+                    //    output[psm.scan].proteinAccession += " or " + psm.proteinAccession;
+                    //}
                 }
 
             //using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\NeoPaper\e001318\FakeNeoCis_AggregatedTest171211_2k.txt"))
             //using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"D:\170710_Desktop\Chemistry\Smith Research\Fusion Peptides\NeoPaper\e001318\NormalNeoCis_AggregatedTest171213_Minus2.txt"))
-            using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"\\bison\share\users\Zach\NeoPaper\MHC-II\171221NormalNeoCis_Aggregated.txt"))
+            using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"\\bison\share\users\Zach\NeoPaper\Fibroblast\180105NormalNeoCis_Aggregated_MinusTwoPointFive.txt"))
             {
                 file.WriteLine(header);
                 foreach (PSM psm in output)
